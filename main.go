@@ -1,6 +1,8 @@
 package main
 
 import (
+	"cloud.google.com/go/bigtable"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/pborman/uuid"
@@ -9,6 +11,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 )
 
 type Location struct {
@@ -25,8 +28,8 @@ const (
 	INDEX = "around"
 	TYPE = "post"
 	DISTANCE = "200km"
-	//PROJECT_ID = "around-xxx"
-	//BT_INSTANCE = "around-post"
+	PROJECT_ID = "around-238122"
+	BT_INSTANCE = "around-post"
 	ES_URL = "http://34.74.1.116:9200"
 	)
 
@@ -79,7 +82,27 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 
 	id:= uuid.New()
 	saveToES(&p, id)
-	fmt.Fprintf(w, "Post is received: %s\n", p.Message)
+
+	ctx := context.Background()
+	bt_client, err := bigtable.NewClient(ctx, PROJECT_ID, BT_INSTANCE)
+	if err != nil {
+		panic(err)
+		return
+	}
+	tbl := bt_client.Open("post")
+	mut := bigtable.NewMutation()
+	t := bigtable.Now()
+	mut.Set("post", "user", t, []byte(p.User))
+	mut.Set("post", "message", t, []byte(p.Message))
+	mut.Set("location", "lat", t, []byte(strconv.FormatFloat(p.Location.Lat, 'f', -1, 64)))
+	mut.Set("location", "lon", t, []byte(strconv.FormatFloat(p.Location.Lon, 'f', -1, 64)))
+	err = tbl.Apply(ctx, id, mut)
+
+	if err != nil {
+		panic(err)
+		return
+	}
+	fmt.Printf("Post is saved to BigTable: %s\n", p.Message)
 }
 
 func saveToES(p *Post, id string) {
@@ -143,7 +166,11 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 	for _, item := range searchResult.Each(reflect.TypeOf(typ)) {
 		p := item.(Post)
 		fmt.Printf("Post by %s: %s at lat %v and lon %v\n", p.User, p.Message, p.Location.Lat, p.Location.Lon)
-		ps = append(ps, p)
+
+		//filter posts containing bad words
+		if !containsFilteredWords(&p.Message) {
+			ps = append(ps, p)
+		}
 	}
 	js, err := json.Marshal(ps)
 	if err != nil {
@@ -153,4 +180,18 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Write(js)
+}
+
+func containsFilteredWords (s *string) bool {
+	filteredWords := []string {
+		"fuck",
+		"ass",
+	}
+
+	for _, word := range filteredWords {
+		if strings.Contains(*s, word) {
+			return true
+		}
+	}
+	return false
 }
