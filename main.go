@@ -1,8 +1,6 @@
 package main
 
 import (
-	"cloud.google.com/go/bigtable"
-	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/pborman/uuid"
@@ -12,6 +10,10 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/auth0/go-jwt-middleware"
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/mux"
 )
 
 type Location struct {
@@ -29,11 +31,11 @@ const (
 	TYPE = "post"
 	DISTANCE = "200km"
 	PROJECT_ID = "around-238122"
-	BT_INSTANCE = "around-post"
-	ES_URL = "http://34.74.1.116:9200"
+	//BT_INSTANCE = "around-post"
+	ES_URL = "http://35.231.33.0:9200"
 	)
 
-
+var mySigningKey = []byte("secret")
 func main(){
 	client, err := elastic.NewClient(elastic.SetURL(ES_URL), elastic.SetSniff(false))
 	if err != nil {
@@ -66,12 +68,31 @@ func main(){
 		}
 	}
 	fmt.Println("started-service")
-	http.HandleFunc("/post", handlerPost)
-	http.HandleFunc("/search", handlerSearch)
+
+	//instantiating the gorilla/mux router
+	r := mux.NewRouter()
+
+	var jwtMiddleware = jwtmiddleware.New(jwtmiddleware.Options{
+		ValidationKeyGetter: func(token *jwt.Token) ( interface{},  error) {
+			return mySigningKey, nil
+		},
+		SigningMethod: jwt.SigningMethodHS256,
+	})
+	r.Handle("/post", jwtMiddleware.Handler(http.HandlerFunc(handlerPost))).Methods("POST")
+	r.Handle("/search", jwtMiddleware.Handler(http.HandlerFunc(handlerSearch))).Methods("GET")
+	r.Handle("/login", http.HandlerFunc(loginHandler)).Methods("POST")
+	r.Handle("/signup", http.HandlerFunc(signupHandler)).Methods("POST")
+
+	http.Handle("/", r)
+
+	//http.HandleFunc("/post", handlerPost)
+	//http.HandleFunc("/search", handlerSearch)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 func handlerPost(w http.ResponseWriter, r *http.Request) {
+
+
 	fmt.Println("Received a post request")
 	decoder := json.NewDecoder(r.Body)
 	var p Post
@@ -79,11 +100,19 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 		return
 	}
+	user := r.Context().Value("user")
+	claims := user.(*jwt.Token).Claims
+	username := claims.(jwt.MapClaims)["username"]
+
+	p.User = username.(string)
 
 	id:= uuid.New()
+	//save to elastic search
 	saveToES(&p, id)
 
-	ctx := context.Background()
+
+	//save data to bigtable
+	/*ctx := context.Background()
 	bt_client, err := bigtable.NewClient(ctx, PROJECT_ID, BT_INSTANCE)
 	if err != nil {
 		panic(err)
@@ -102,7 +131,7 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 		return
 	}
-	fmt.Printf("Post is saved to BigTable: %s\n", p.Message)
+	fmt.Printf("Post is saved to BigTable: %s\n", p.Message)*/
 }
 
 func saveToES(p *Post, id string) {
