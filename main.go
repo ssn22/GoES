@@ -32,16 +32,24 @@ const (
 	DISTANCE = "200km"
 	PROJECT_ID = "around-238122"
 	//BT_INSTANCE = "around-post"
-	ES_URL = "http://35.231.33.0:9200"
+	ES_URL = "http://34.74.23.75:9200"
 	)
 
 var mySigningKey = []byte("secret")
 func main(){
+
 	client, err := elastic.NewClient(elastic.SetURL(ES_URL), elastic.SetSniff(false))
 	if err != nil {
 		panic(err)
 		return
 	}
+	// Getting the ES version number is quite common, so there's a shortcut
+	esversion, err := client.ElasticsearchVersion(ES_URL)
+	if err != nil {
+		// Handle error
+		panic(err)
+	}
+	fmt.Printf("Elasticsearch version %s\n", esversion)
 
 	exists, err := client.IndexExists(INDEX).Do()
 	if err != nil {
@@ -52,6 +60,7 @@ func main(){
 		mapping :=
 		`{
 			"mappings":{
+				
 				"post":{
 					"properties":{
 						"location":{
@@ -100,13 +109,14 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 		return
 	}
+
+	id:= uuid.New()
 	user := r.Context().Value("user")
 	claims := user.(*jwt.Token).Claims
 	username := claims.(jwt.MapClaims)["username"]
-
 	p.User = username.(string)
 
-	id:= uuid.New()
+
 	//save to elastic search
 	saveToES(&p, id)
 
@@ -157,6 +167,7 @@ func saveToES(p *Post, id string) {
 }
 
 func handlerSearch(w http.ResponseWriter, r *http.Request) {
+
 	fmt.Println("Received one request for search")
 	lat := r.URL.Query().Get("lat")
 	lon := r.URL.Query().Get("lon")
@@ -175,9 +186,9 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q := elastic.NewGeoDistanceQuery("location")
-	q = q.Distance(ran).Lat(lt).Lon(ln)
-
+	//q := elastic.NewGeoDistanceQuery("location")
+	//q = q.Distance(ran).Lat(lt).Lon(ln)
+	q := elastic.NewTermQuery("user", "111")
 	searchResult, err := client.Search().
 		Index(INDEX).
 		Query(q).

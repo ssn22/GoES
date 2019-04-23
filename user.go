@@ -60,7 +60,7 @@ func addUser(username, password string)bool {
 		Username:username,
 		Password:password,
 	}
-
+	fmt.Printf("%s\n", username)
 	//search with a term query
 	termQuery := elastic.NewTermQuery("username", username)
 	queryResult, err := es_client.Search().
@@ -72,7 +72,7 @@ func addUser(username, password string)bool {
 		fmt.Printf("ES query failed %v\n", err)
 		return false
 	}
-
+	fmt.Printf("Found a total of %d tweets\n", queryResult.TotalHits())
 	if queryResult.TotalHits() > 0 {
 		fmt.Printf("User %s has existed. cannot create duplicate user.\n", username)
 		return  false
@@ -84,7 +84,6 @@ func addUser(username, password string)bool {
 		Type(TYPE_USER).
 		Id(username).
 		BodyJson(user).
-		Refresh(true).
 		Do()
 	if err != nil {
 		fmt.Printf("ES save failed %v\n", err)
